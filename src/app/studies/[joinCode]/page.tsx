@@ -279,6 +279,8 @@ export default function StudyPage() {
                 key={t.id}
                 task={t}
                 totalMembers={list.totalMembers}
+                members={members}
+                completions={list.completions.filter((c) => c.taskId === t.id)}
                 joinCode={joinCode}
                 onToggle={toggle}
                 onDelete={remove}
@@ -293,6 +295,8 @@ export default function StudyPage() {
         <MemberProgress
           members={members}
           totalTasks={totalTasks}
+          tasks={list.tasks}
+          completions={list.completions}
           meId={me.id}
           onKick={me.isOwner ? kick : undefined}
         />

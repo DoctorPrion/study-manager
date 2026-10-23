@@ -19,7 +19,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ joinCode: strin
     if (studyId === null) return fail(404, "스터디를 찾을 수 없습니다.");
 
     const memberId = Number(new URL(req.url).searchParams.get("memberId"));
-    const [tasks, members] = await Promise.all([
+    const [tasks, members, completions] = await Promise.all([
       query<TaskRow>(
         `SELECT ${TASK_SELECT} FROM tasks t WHERE t.study_id = $1 ORDER BY t.due_date, t.id`,
         [studyId, Number.isInteger(memberId) && memberId > 0 ? memberId : 0],
@@ -27,9 +27,25 @@ export async function GET(req: Request, ctx: { params: Promise<{ joinCode: strin
       query<{ total: number }>(`SELECT count(*)::int AS total FROM members WHERE study_id = $1`, [
         studyId,
       ]),
+      query<{ task_id: number; member_id: number; date: string }>(
+        `SELECT c.task_id, c.member_id,
+                to_char(c.completed_at AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') AS date
+           FROM completions c JOIN tasks t ON t.id = c.task_id
+          WHERE t.study_id = $1
+          ORDER BY c.completed_at`,
+        [studyId],
+      ),
     ]);
 
-    return NextResponse.json({ tasks: tasks.map(toTask), totalMembers: members[0].total });
+    return NextResponse.json({
+      tasks: tasks.map(toTask),
+      totalMembers: members[0].total,
+      completions: completions.map((c) => ({
+        taskId: c.task_id,
+        memberId: c.member_id,
+        date: c.date,
+      })),
+    });
   } catch (e) {
     return serverError(e);
   }

@@ -31,7 +31,16 @@ export interface Task {
   doneByMe: boolean;
 }
 
+/** 누가 어떤 과제를 언제 완료했는지 (펼침 목록용). 과제 목록과 같은 응답에 담아 추가 요청이 없다. */
+export interface Completion {
+  taskId: number;
+  memberId: number;
+  /** 완료한 날짜 (한국 시간, YYYY-MM-DD) */
+  date: string;
+}
+
 export interface TaskList {
   tasks: Task[];
   totalMembers: number;
+  completions: Completion[];
 }
