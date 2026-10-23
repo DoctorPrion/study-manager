@@ -8,13 +8,16 @@ export interface MemberProgress {
   id: number;
   nickname: string;
   completedCount: number;
+  isOwner: boolean;
 }
 
 export interface StudyDetail {
   study: Study;
   members: MemberProgress[];
   totalTasks: number;
-  me: { id: number; nickname: string } | null;
+  me: { id: number; nickname: string; isOwner: boolean } | null;
+  /** me 가 없을 때, 스터디장에게 추방되어서인지 여부 */
+  kicked?: boolean;
 }
 
 export interface Task {

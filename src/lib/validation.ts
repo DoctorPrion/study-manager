@@ -30,9 +30,14 @@ export const createStudySchema = z.object({
     .default(""),
 });
 
+export const pinSchema = z
+  .string({ error: "PIN 4자리를 입력해 주세요." })
+  .regex(/^\d{4}$/, "PIN은 숫자 4자리입니다.");
+
 export const joinStudySchema = z.object({
   joinCode: joinCodeSchema,
   nickname: nicknameSchema,
+  pin: pinSchema,
 });
 
 export const taskSchema = z.object({

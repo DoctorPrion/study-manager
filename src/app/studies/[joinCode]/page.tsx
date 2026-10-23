@@ -6,10 +6,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { JoinStudyForm } from "@/components/JoinStudyForm";
 import { MemberProgress } from "@/components/MemberProgress";
 import { TaskItem } from "@/components/TaskItem";
-import { Card, ErrorMessage } from "@/components/ui";
-import { api, ApiError } from "@/lib/api";
+import { Button, Card, ErrorMessage, Input } from "@/components/ui";
+import { api, ApiError, jsonBody } from "@/lib/api";
 import { clearSession, loadSession } from "@/lib/session";
-import type { StudyDetail, Task, TaskList } from "@/types";
+import type { MemberProgress as MemberProgressType, StudyDetail, Task, TaskList } from "@/types";
 
 type State =
   | { status: "loading" }
@@ -25,7 +25,13 @@ export default function StudyPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [confirmName, setConfirmName] = useState("");
+  const [deleting, setDeleting] = useState(false);
+
   const inFlight = useRef(false);
+  const wasReady = useRef(false);
+  const leaving = useRef(false); // 내가 직접 나가기/삭제 중이면 "삭제된 스터디" 안내를 띄우지 않는다
 
   // background=true: 자동 갱신. 로딩/에러 화면으로 바꾸지 않고, 실패하면 기존 화면을 유지한다.
   const load = useCallback(async (background = false) => {
@@ -39,17 +45,33 @@ export default function StudyPage() {
         `/api/studies/${joinCode}?memberId=${session?.memberId ?? 0}`,
       );
       if (!detail.me) {
+        if (detail.kicked && !leaving.current) {
+          leaving.current = true;
+          clearSession(joinCode);
+          alert("스터디에서 추방되었습니다.");
+          router.push("/");
+          return;
+        }
         clearSession(joinCode);
         setState({ status: "needJoin" });
         return;
       }
       const list = await api<TaskList>(`/api/studies/${joinCode}/tasks?memberId=${detail.me.id}`);
+      wasReady.current = true;
       const next = { status: "ready" as const, detail: { ...detail, me: detail.me }, list };
       setState((prev) =>
         // 내용이 같으면 기존 state를 유지해 불필요한 리렌더를 막는다.
         prev.status === "ready" && JSON.stringify(prev) === JSON.stringify(next) ? prev : next,
       );
     } catch (e) {
+      // 보고 있던 스터디가 삭제됨 (다른 멤버가 스터디장이 삭제한 경우)
+      if (e instanceof ApiError && e.status === 404 && wasReady.current && !leaving.current) {
+        leaving.current = true;
+        clearSession(joinCode);
+        alert("삭제된 스터디입니다.");
+        router.push("/");
+        return;
+      }
       if (background) return;
       setState({
         status: "error",
@@ -58,7 +80,7 @@ export default function StudyPage() {
     } finally {
       if (background) inFlight.current = false;
     }
-  }, [joinCode]);
+  }, [joinCode, router]);
 
   useEffect(() => {
     load();
@@ -134,6 +156,60 @@ export default function StudyPage() {
     await load();
   }
 
+  async function leave() {
+    if (!confirm("스터디에서 나갈까요? 내 완료 기록이 모두 삭제되며 되돌릴 수 없습니다.")) return;
+    setActionError(null);
+    try {
+      await api(`/api/studies/${joinCode}/members/${me.id}`, { method: "DELETE" });
+    } catch (e) {
+      // 이미 나간 멤버/삭제된 스터디라면 그대로 정리하고 나간다.
+      if (!(e instanceof ApiError && e.status === 404)) {
+        setActionError(e instanceof ApiError ? e.message : "나가지 못했습니다.");
+        return;
+      }
+    }
+    leaving.current = true;
+    clearSession(joinCode);
+    router.push("/");
+  }
+
+  async function deleteStudy(e: React.FormEvent) {
+    e.preventDefault();
+    setDeleting(true);
+    setActionError(null);
+    try {
+      await api(`/api/studies/${joinCode}`, {
+        method: "DELETE",
+        ...jsonBody({ memberId: me.id, confirmName }),
+      });
+      leaving.current = true;
+      clearSession(joinCode);
+      router.push("/");
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "삭제하지 못했습니다.");
+      setDeleting(false);
+    }
+  }
+
+  async function kick(target: MemberProgressType) {
+    if (
+      !confirm(
+        `${target.nickname}님을 추방할까요? 완료 기록이 삭제되고 같은 닉네임으로 다시 입장할 수 없습니다.`,
+      )
+    )
+      return;
+    setActionError(null);
+    try {
+      await api(`/api/studies/${joinCode}/members/${target.id}/kick`, {
+        method: "POST",
+        ...jsonBody({ memberId: me.id }),
+      });
+    } catch (e) {
+      setActionError(e instanceof ApiError ? e.message : "추방하지 못했습니다.");
+    }
+    await load();
+  }
+
   async function copyCode() {
     try {
       await navigator.clipboard.writeText(study.joinCode);
@@ -167,15 +243,15 @@ export default function StudyPage() {
           <span>
             내 닉네임 <b>{me.nickname}</b>
           </span>
-          <button
-            className="text-xs text-slate-500 underline"
-            onClick={() => {
-              clearSession(joinCode);
-              router.push("/");
-            }}
-          >
-            나가기
-          </button>
+          {me.isOwner ? (
+            <span className="text-xs text-slate-500">
+              스터디장은 나갈 수 없어요. 스터디 삭제만 가능합니다.
+            </span>
+          ) : (
+            <button className="text-xs text-slate-500 underline" onClick={leave}>
+              나가기
+            </button>
+          )}
         </div>
       </header>
 
@@ -214,8 +290,58 @@ export default function StudyPage() {
 
       <Card>
         <h2 className="mb-3 text-lg font-semibold">멤버별 진행률</h2>
-        <MemberProgress members={members} totalTasks={totalTasks} meId={me.id} />
+        <MemberProgress
+          members={members}
+          totalTasks={totalTasks}
+          meId={me.id}
+          onKick={me.isOwner ? kick : undefined}
+        />
       </Card>
+
+      {me.isOwner && (
+        <Card className="border-red-200">
+          <h2 className="mb-1 text-lg font-semibold text-red-700">스터디 삭제</h2>
+          <p className="mb-3 text-sm text-slate-600">
+            스터디와 모든 멤버·과제·완료 기록이 영구 삭제됩니다.
+          </p>
+          {deleteOpen ? (
+            <form onSubmit={deleteStudy} className="space-y-3">
+              <p className="text-sm">
+                확인을 위해 스터디 이름 <b>{study.name}</b> 을(를) 그대로 입력해 주세요.
+              </p>
+              <Input
+                value={confirmName}
+                onChange={(e) => setConfirmName(e.target.value)}
+                placeholder={study.name}
+                autoFocus
+              />
+              <div className="flex gap-2">
+                <Button
+                  type="submit"
+                  variant="danger"
+                  disabled={deleting || confirmName !== study.name}
+                >
+                  {deleting ? "삭제 중…" : "영구 삭제"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => {
+                    setDeleteOpen(false);
+                    setConfirmName("");
+                  }}
+                >
+                  취소
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <Button variant="danger" onClick={() => setDeleteOpen(true)}>
+              스터디 삭제
+            </Button>
+          )}
+        </Card>
+      )}
     </div>
   );
 }

@@ -23,6 +23,7 @@ export function JoinStudyForm({
 }) {
   const [joinCode, setJoinCode] = useState(initialCode);
   const [nickname, setNickname] = useState("");
+  const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [fields, setFields] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -35,7 +36,7 @@ export function JoinStudyForm({
     try {
       const r = await api<JoinResult>("/api/studies/join", {
         method: "POST",
-        ...jsonBody({ joinCode, nickname }),
+        ...jsonBody({ joinCode, nickname, pin }),
       });
       saveSession(r.study.joinCode, { memberId: r.memberId, nickname: r.nickname });
       onJoined(r.study.joinCode);
@@ -68,6 +69,22 @@ export function JoinStudyForm({
           placeholder="스터디에서 사용할 이름"
         />
       </Field>
+      <Field label="PIN (숫자 4자리)" error={fields.pin}>
+        <Input
+          type="password"
+          inputMode="numeric"
+          autoComplete="off"
+          value={pin}
+          onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+          maxLength={4}
+          placeholder="••••"
+          className="font-mono tracking-widest"
+        />
+      </Field>
+      <p className="text-xs text-slate-500">
+        처음이면 이 닉네임과 PIN으로 새로 등록되고, 이미 참여한 닉네임이면 PIN으로 다시 들어옵니다.
+        PIN을 잊으면 복구할 수 없으니 기억해 두세요.
+      </p>
       <ErrorMessage message={error} />
       <Button type="submit" disabled={busy} className="w-full">
         {busy ? "입장 중…" : "입장하기"}
